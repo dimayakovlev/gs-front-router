@@ -59,7 +59,7 @@ class FrontRouterRouter {
     $route = self::findMatchedRoute(self::$routes, $url);
 
     if ($route) {
-      return self::parseDataFromRoute($route);
+      return self::parseDataFromRoute($route['route'], $route['callback'], $route['params']);
     } else {
       return false;
     }
@@ -119,31 +119,49 @@ class FrontRouterRouter {
    * @param array $route Route data
    * @return object Result data
    */
-  public static function parseDataFromRoute($route) {
-    $params   = $route['params'];
-    $callback = $route['callback'];
-
-    ob_start();
-
+  public static function parseDataFromRoute($route, $callback, $params) {
     // Ensure we have a valid callback
     $cb = self::callbackStringToFunction($callback);
 
+    // Build the data object
     $data = (object) call_user_func_array($cb, $params);
 
-    if (is_callable($data->content) || is_null($data->content)) {
-      if (is_callable($data->content)) {
-        call_user_func_array($data->content,$params);
-      }
+    // If the request method is wrong, terminate
+    if (property_exists($data, 'method') && !self::matchRequestMethod($data->method)) {
+      return false;
+    }
 
-      $buffer  = ob_get_contents();
+    ob_start();
 
-      if ($buffer) {
-        $data->content = $buffer;
-      }
+    // Now choose the correct content
+    // If the callback created a callable, execute it
+    if (is_callable($data->content)) {
+      $content = call_user_func_array($data->content, $params);
+    } else {
+      $content = '';
+    }
+
+    // Check the buffer, and use either the buffer or the callable's result
+    $buffer = ob_get_contents();
+
+    if ($buffer) {
+      $data->content = $buffer;
+    } else {
+      $data->content = $content;
     }
 
     ob_end_clean();
 
     return $data;
+  }
+
+  /**
+   * Checks whether the request method is matched
+   *
+   * @param string $method Method
+   * @return bool True iff method matches request method
+   */
+  private static function matchRequestMethod($method) {
+    return strtolower($method) === strtolower($_SERVER['REQUEST_METHOD']);
   }
 }
